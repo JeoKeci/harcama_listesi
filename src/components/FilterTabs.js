@@ -4,8 +4,8 @@ import { theme } from '../theme/colors';
 
 const FILTERS = [
   { key: 'all', label: 'Tümü' },
+  { key: 'company', label: 'Şantiye' },
   { key: 'personal', label: 'Kişisel' },
-  { key: 'business', label: 'İş' },
 ];
 
 export const FilterTabs = ({ activeFilter, onFilterChange }) => {
@@ -15,7 +15,7 @@ export const FilterTabs = ({ activeFilter, onFilterChange }) => {
         const isActive = activeFilter === filter.key;
         let activeColor = theme.primary;
         if (filter.key === 'personal') activeColor = theme.personal;
-        if (filter.key === 'business') activeColor = theme.business;
+        if (filter.key === 'company') activeColor = theme.business;
 
         return (
           <TouchableOpacity

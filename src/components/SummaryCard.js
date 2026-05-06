@@ -1,38 +1,82 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { theme } from '../theme/colors';
 import { MaterialIcons } from '@expo/vector-icons';
 
-export const SummaryCard = ({ totalAll, totalPersonal, totalBusiness, currency = '₺' }) => {
+export const SummaryCard = ({ netBalance, wallets, onPress }) => {
+  const isPositive = netBalance >= 0;
+  const balanceText = isPositive
+    ? `Şirket size borçlu`
+    : `Siz şirkete borçlusunuz`;
+  const balanceAmount = Math.abs(netBalance);
+  const balanceColor = isPositive ? theme.secondary : theme.danger;
+
+  const personalWallets = wallets.filter((w) => w.owner === 'Personal');
+  const companyWallets = wallets.filter((w) => w.owner === 'Company');
+
   return (
-    <View style={styles.container}>
-      {/* Ana Toplam */}
-      <View style={styles.totalSection}>
-        <Text style={styles.totalLabel}>Toplam Harcama</Text>
-        <Text style={styles.totalAmount}>{totalAll.toFixed(2)} {currency}</Text>
+    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.85}>
+      {/* Net Bakiye */}
+      <View style={styles.netSection}>
+        <View style={styles.netLabelRow}>
+          <MaterialIcons
+            name={isPositive ? 'trending-up' : 'trending-down'}
+            size={20}
+            color={balanceColor}
+          />
+          <Text style={[styles.netLabel, { color: balanceColor }]}>{balanceText}</Text>
+        </View>
+        <Text style={[styles.netAmount, { color: balanceColor }]}>
+          {balanceAmount.toFixed(2)} ₺
+        </Text>
+        {netBalance !== 0 && (
+          <Text style={styles.tapHint}>Mahsuplaşma için dokunun →</Text>
+        )}
       </View>
 
-      {/* Alt Kırılımlar */}
-      <View style={styles.breakdownRow}>
-        <View style={styles.breakdownItem}>
-          <View style={[styles.dot, { backgroundColor: theme.personal }]} />
-          <View>
-            <Text style={styles.breakdownLabel}>Kişisel</Text>
-            <Text style={styles.breakdownAmount}>{totalPersonal.toFixed(2)} {currency}</Text>
+      {/* Cüzdan Bakiyeleri */}
+      <View style={styles.walletsSection}>
+        {/* Kişisel Cüzdanlar */}
+        <View style={styles.walletGroup}>
+          <View style={styles.walletGroupHeader}>
+            <View style={[styles.dot, { backgroundColor: theme.personal }]} />
+            <Text style={styles.walletGroupLabel}>Kişisel</Text>
           </View>
+          {personalWallets.map((w) => (
+            <View key={w.id} style={styles.walletRow}>
+              <MaterialIcons
+                name={w.type === 'Cash' ? 'payments' : 'credit-card'}
+                size={14}
+                color={theme.textMuted}
+              />
+              <Text style={styles.walletName}>{w.name}</Text>
+              <Text style={styles.walletBalance}>{w.balance.toFixed(2)} ₺</Text>
+            </View>
+          ))}
         </View>
 
         <View style={styles.divider} />
 
-        <View style={styles.breakdownItem}>
-          <View style={[styles.dot, { backgroundColor: theme.business }]} />
-          <View>
-            <Text style={styles.breakdownLabel}>İş</Text>
-            <Text style={styles.breakdownAmount}>{totalBusiness.toFixed(2)} {currency}</Text>
+        {/* Şirket Cüzdanları */}
+        <View style={styles.walletGroup}>
+          <View style={styles.walletGroupHeader}>
+            <View style={[styles.dot, { backgroundColor: theme.business }]} />
+            <Text style={styles.walletGroupLabel}>Şirket</Text>
           </View>
+          {companyWallets.map((w) => (
+            <View key={w.id} style={styles.walletRow}>
+              <MaterialIcons
+                name={w.type === 'Cash' ? 'payments' : 'credit-card'}
+                size={14}
+                color={theme.textMuted}
+              />
+              <Text style={styles.walletName}>{w.name}</Text>
+              <Text style={styles.walletBalance}>{w.balance.toFixed(2)} ₺</Text>
+            </View>
+          ))}
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 };
 
@@ -48,57 +92,78 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  totalSection: {
+  netSection: {
     alignItems: 'center',
     marginBottom: 20,
   },
-  totalLabel: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
+  netLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     marginBottom: 8,
   },
-  totalAmount: {
-    color: '#FFFFFF',
+  netLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  netAmount: {
     fontSize: 36,
     fontWeight: 'bold',
     letterSpacing: 0.5,
   },
-  breakdownRow: {
+  tapHint: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 11,
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  walletsSection: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
-  breakdownItem: {
+  walletGroup: {
+    flex: 1,
+  },
+  walletGroupHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
+    marginBottom: 8,
   },
   dot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
   },
-  breakdownLabel: {
+  walletGroupLabel: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 12,
     fontWeight: '600',
-    marginBottom: 2,
   },
-  breakdownAmount: {
+  walletRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  walletName: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 11,
+    flex: 1,
+  },
+  walletBalance: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: 'bold',
   },
   divider: {
     width: 1,
-    height: 36,
-    backgroundColor: 'rgba(255,255,255,0.25)',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginHorizontal: 12,
   },
 });

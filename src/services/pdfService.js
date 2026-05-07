@@ -60,8 +60,15 @@ export const generateReportHTML = (transactions, options = {}) => {
   // Rule: Exclude Personal categories IF paid from Personal wallets
   const filteredTransactions = transactions.filter(t => {
     if (t.is_offset_transaction) return true; // Keep offsets
-    if (t.is_income) return true; // Keep income (advances)
+    if (t.is_income) return true; // Keep income (advances) for balance consistency
+    
+    // Rule: If it was paid from a COMPANY wallet, it MUST be in the report
+    // even if it's a personal category (because it creates debt)
+    if (t.wallet_owner === 'Company') return true;
+
+    // Rule: Exclude Personal categories IF paid from Personal wallets (private)
     if (t.category_type === 'Personal' && t.wallet_owner === 'Personal') return false;
+    
     return true;
   });
 
@@ -117,6 +124,7 @@ export const generateReportHTML = (transactions, options = {}) => {
           <tr>
             <td>${formatDate(t.date)}</td>
             <td><span class="badge ${badgeClass}">${categoryName}</span></td>
+            <td>${t.project_name || t.city || '-'}</td>
             <td>${t.description || '-'}</td>
             <td>${t.wallet_name || '-'}</td>
             <td class="amount" style="${amountStyle}">${t.is_income ? '+' : ''}${formatCurrency(t.amount)} ₺</td>
@@ -133,6 +141,7 @@ export const generateReportHTML = (transactions, options = {}) => {
       <tr class="offset-row">
         <td>${formatDate(t.date)}</td>
         <td><span class="badge badge-offset">${t.is_virtual ? 'Maaş Kesintisi' : 'Nakit Ödeme'}</span></td>
+        <td>${t.project_name || t.city || '-'}</td>
         <td>${t.description || 'Hesap Kapatma'}</td>
         <td>${t.wallet_name || '-'}</td>
         <td class="amount offset-amount">${t.is_virtual ? '-' : ''}${formatCurrency(t.amount)} ₺</td>
@@ -296,12 +305,8 @@ export const generateReportHTML = (transactions, options = {}) => {
           <div class="value">${formatCurrency(companyExpenses)} ₺</div>
         </div>
         <div class="summary-card">
-          <div class="label">Kişisel Harcamalar</div>
+          <div class="label">Şirket Kaynaklı Şahsi</div>
           <div class="value">${formatCurrency(personalExpenses)} ₺</div>
-        </div>
-        <div class="summary-card">
-          <div class="label">Alınan Avanslar</div>
-          <div class="value">${formatCurrency(receivedAdvances)} ₺</div>
         </div>
         <div class="summary-card">
           <div class="label">Mahsuplaşmalar</div>
@@ -320,6 +325,7 @@ export const generateReportHTML = (transactions, options = {}) => {
             <tr>
               <th>Tarih</th>
               <th>Kategori</th>
+              <th>Proje / Şehir</th>
               <th>Açıklama</th>
               <th>Cüzdan</th>
               <th style="text-align:right">Tutar</th>

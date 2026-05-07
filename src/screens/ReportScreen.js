@@ -136,6 +136,7 @@ export default function ReportScreen() {
           />
         )}
 
+        {/* Proje Filtresi şimdilik gizlendi
         <View style={styles.card}>
           <Text style={styles.label}>Proje Filtresi</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.projectScroll}>
@@ -160,6 +161,7 @@ export default function ReportScreen() {
             ))}
           </ScrollView>
         </View>
+        */}
 
         <View style={styles.infoCard}>
           <MaterialIcons name="info-outline" size={24} color={theme.primary} />

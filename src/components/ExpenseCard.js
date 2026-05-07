@@ -6,9 +6,12 @@ import { MaterialIcons } from '@expo/vector-icons';
 export const ExpenseCard = ({ expense, onDelete }) => {
   const isPersonal = expense.category_type === 'Personal';
   const isOffset = expense.is_offset_transaction;
-  const typeColor = isOffset ? '#F59E0B' : isPersonal ? theme.personal : theme.business;
+  const isIncome = expense.is_income;
+  const typeColor = isOffset ? '#F59E0B' : isIncome ? theme.secondary : isPersonal ? theme.personal : theme.business;
   const iconName = isOffset
     ? 'swap-horiz'
+    : isIncome
+    ? 'add-circle-outline'
     : isPersonal
     ? 'person'
     : 'business-center';
@@ -22,7 +25,7 @@ export const ExpenseCard = ({ expense, onDelete }) => {
       <View style={styles.infoContainer}>
         <View style={styles.topRow}>
           <Text style={styles.categoryName} numberOfLines={1}>
-            {isOffset ? 'Mahsuplaşma' : expense.category_name || 'Kategori'}
+            {isOffset ? 'Mahsuplaşma' : isIncome ? 'Para Girişi' : expense.category_name || 'Kategori'}
           </Text>
           {expense.receipt_uri ? (
             <MaterialIcons name="receipt" size={14} color={theme.textMuted} />
@@ -65,8 +68,8 @@ export const ExpenseCard = ({ expense, onDelete }) => {
       </View>
 
       <View style={styles.amountContainer}>
-        <Text style={[styles.amount, isOffset && { color: '#F59E0B' }]}>
-          {isOffset ? '+' : '-'}{expense.amount.toFixed(2)} ₺
+        <Text style={[styles.amount, isOffset && { color: '#F59E0B' }, isIncome && { color: theme.secondary }]}>
+          {isOffset || isIncome ? '+' : '-'}{expense.amount.toFixed(2)} ₺
         </Text>
         <TouchableOpacity onPress={() => onDelete(expense.id)} style={styles.deleteButton}>
           <MaterialIcons name="delete-outline" size={20} color={theme.danger} />

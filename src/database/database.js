@@ -11,8 +11,9 @@ export const getDatabase = async () => {
 export const initDatabase = async () => {
   const database = await getDatabase();
 
-  // Enable WAL mode for better performance
+  // Enable WAL mode and Foreign Keys
   await database.execAsync('PRAGMA journal_mode = WAL;');
+  await database.execAsync('PRAGMA foreign_keys = ON;');
 
   // Create tables
   await database.execAsync(`
@@ -48,11 +49,20 @@ export const initDatabase = async () => {
       description TEXT,
       receipt_uri TEXT,
       is_offset_transaction INTEGER DEFAULT 0,
+      is_income INTEGER DEFAULT 0,
+      is_virtual INTEGER DEFAULT 0,
       FOREIGN KEY (wallet_id) REFERENCES wallets(id),
       FOREIGN KEY (category_id) REFERENCES categories(id),
       FOREIGN KEY (project_id) REFERENCES projects(id)
     );
   `);
+
+  // Migration: Add is_virtual column if it doesn't exist
+  try {
+    await database.execAsync('ALTER TABLE transactions ADD COLUMN is_virtual INTEGER DEFAULT 0;');
+  } catch (e) {
+    // Column might already exist
+  }
 
   // Seed default data if empty
   await seedDefaultData(database);
@@ -60,50 +70,61 @@ export const initDatabase = async () => {
   return database;
 };
 
+export const resetDatabase = async () => {
+  const database = await getDatabase();
+  await database.execAsync(`
+    DROP TABLE IF EXISTS transactions;
+    DROP TABLE IF EXISTS wallets;
+    DROP TABLE IF EXISTS categories;
+    DROP TABLE IF EXISTS projects;
+  `);
+  await initDatabase();
+};
+
 const seedDefaultData = async (database) => {
   // Check if wallets already exist
-  const walletCount = await database.getFirstAsync('SELECT COUNT(*) as count FROM wallets');
-  if (walletCount.count > 0) return;
+  const walletCheck = await database.getFirstAsync('SELECT COUNT(*) as count FROM wallets');
+  if (walletCheck.count === 0) {
+    await database.execAsync(`
+      INSERT INTO wallets (name, type, owner, balance) VALUES
+        ('Kişisel Nakit', 'Cash', 'Personal', 0),
+        ('Kişisel Kart', 'Card', 'Personal', 0),
+        ('Şirket Nakit', 'Cash', 'Company', 0),
+        ('Şirket Kart', 'Card', 'Company', 0);
+    `);
+  }
 
-  // Default Wallets
-  await database.execAsync(`
-    INSERT INTO wallets (name, type, owner, balance) VALUES
-      ('Kişisel Nakit', 'Cash', 'Personal', 0),
-      ('Kişisel Kart', 'Card', 'Personal', 0),
-      ('Şirket Nakit', 'Cash', 'Company', 0),
-      ('Şirket Kart', 'Card', 'Company', 0);
-  `);
+  // Check if categories already exist
+  const catCheck = await database.getFirstAsync('SELECT COUNT(*) as count FROM categories');
+  if (catCheck.count === 0) {
+    await database.execAsync(`
+      INSERT INTO categories (name, type) VALUES
+        ('Yemek', 'Personal'),
+        ('Market', 'Personal'),
+        ('Ulaşım', 'Personal'),
+        ('Fatura', 'Personal'),
+        ('Eğlence', 'Personal'),
+        ('Sağlık', 'Personal'),
+        ('Giyim', 'Personal'),
+        ('Kişisel Diğer', 'Personal'),
+        ('Malzeme', 'Company'),
+        ('İşçilik', 'Company'),
+        ('Nakliye', 'Company'),
+        ('Ekipman', 'Company'),
+        ('Yakıt', 'Company'),
+        ('Şantiye Yemek', 'Company'),
+        ('Konaklama', 'Company'),
+        ('Şirket Diğer', 'Company'),
+        ('Hesap Kapatma', 'Personal'),
+        ('Hesap Kapatma', 'Company');
+    `);
+  }
 
-  // Default Categories - Personal
-  await database.execAsync(`
-    INSERT INTO categories (name, type) VALUES
-      ('Yemek', 'Personal'),
-      ('Market', 'Personal'),
-      ('Ulaşım', 'Personal'),
-      ('Fatura', 'Personal'),
-      ('Eğlence', 'Personal'),
-      ('Sağlık', 'Personal'),
-      ('Giyim', 'Personal'),
-      ('Kişisel Diğer', 'Personal');
-  `);
-
-  // Default Categories - Company
-  await database.execAsync(`
-    INSERT INTO categories (name, type) VALUES
-      ('Malzeme', 'Company'),
-      ('İşçilik', 'Company'),
-      ('Nakliye', 'Company'),
-      ('Ekipman', 'Company'),
-      ('Yakıt', 'Company'),
-      ('Şantiye Yemek', 'Company'),
-      ('Konaklama', 'Company'),
-      ('Şirket Diğer', 'Company');
-  `);
-
-  // Default Project
-  await database.execAsync(`
-    INSERT INTO projects (name) VALUES ('Genel Şantiye');
-  `);
+  // Check if projects already exist
+  const projectCheck = await database.getFirstAsync('SELECT COUNT(*) as count FROM projects');
+  if (projectCheck.count === 0) {
+    await database.execAsync("INSERT INTO projects (name) VALUES ('Genel Şantiye');");
+  }
 };
 
 // ==================== WALLET CRUD ====================
@@ -137,6 +158,14 @@ export const updateWalletBalance = async (walletId, amount) => {
   );
 };
 
+export const updateWallet = async (id, name, type, owner) => {
+  const database = await getDatabase();
+  await database.runAsync(
+    'UPDATE wallets SET name = ?, type = ?, owner = ? WHERE id = ?',
+    [name, type, owner, id]
+  );
+};
+
 export const deactivateWallet = async (walletId) => {
   const database = await getDatabase();
   await database.runAsync(
@@ -166,6 +195,14 @@ export const insertProject = async (name) => {
     [name]
   );
   return result.lastInsertRowId;
+};
+
+export const updateProject = async (id, name) => {
+  const database = await getDatabase();
+  await database.runAsync(
+    'UPDATE projects SET name = ? WHERE id = ?',
+    [name, id]
+  );
 };
 
 export const deactivateProject = async (projectId) => {
@@ -265,8 +302,8 @@ export const getTransactionsByDateRange = async (startDate, endDate, projectId =
 export const insertTransaction = async (data) => {
   const database = await getDatabase();
   const result = await database.runAsync(
-    `INSERT INTO transactions (date, amount, wallet_id, category_id, project_id, city, description, receipt_uri, is_offset_transaction)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO transactions (date, amount, wallet_id, category_id, project_id, city, description, receipt_uri, is_offset_transaction, is_income, is_virtual)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.date,
       data.amount,
@@ -277,6 +314,8 @@ export const insertTransaction = async (data) => {
       data.description || null,
       data.receipt_uri || null,
       data.is_offset_transaction ? 1 : 0,
+      data.is_income ? 1 : 0,
+      data.is_virtual ? 1 : 0,
     ]
   );
   return result.lastInsertRowId;

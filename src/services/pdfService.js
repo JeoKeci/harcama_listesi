@@ -56,18 +56,35 @@ export const generateReportHTML = (transactions, options = {}) => {
     netBalance = 0,
   } = options;
 
+  // Filter transactions based on user rules
+  // Rule: Exclude Personal categories IF paid from Personal wallets
+  const filteredTransactions = transactions.filter(t => {
+    if (t.is_offset_transaction) return true; // Keep offsets
+    if (t.is_income) return true; // Keep income (advances)
+    if (t.category_type === 'Personal' && t.wallet_owner === 'Personal') return false;
+    return true;
+  });
+
   // Calculate summaries
-  const companyExpenses = transactions
-    .filter((t) => t.category_type === 'Company' && !t.is_offset_transaction)
+  const companyExpenses = filteredTransactions
+    .filter((t) => t.category_type === 'Company' && !t.is_offset_transaction && !t.is_income)
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const personalExpenses = transactions
-    .filter((t) => t.category_type === 'Personal' && !t.is_offset_transaction)
+  const personalExpenses = filteredTransactions
+    .filter((t) => t.category_type === 'Personal' && !t.is_offset_transaction && !t.is_income)
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const offsetTotal = transactions
+  const receivedAdvances = filteredTransactions
+    .filter((t) => t.is_income && t.wallet_owner === 'Personal')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const offsetTotal = filteredTransactions
     .filter((t) => t.is_offset_transaction)
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => {
+      // In report, show net offset effect
+      if (t.is_virtual) return sum - t.amount; // Salary cut reduces debt (shown as negative deduction)
+      return sum + t.amount; // Physical payment reduces credit (shown as positive payment)
+    }, 0);
 
   const balanceLabel =
     netBalance >= 0
@@ -82,31 +99,43 @@ export const generateReportHTML = (transactions, options = {}) => {
       : 'Tüm Zamanlar';
 
   // Transaction rows
-  const transactionRows = transactions
+  const transactionRows = filteredTransactions
     .filter((t) => !t.is_offset_transaction)
     .map(
-      (t) => `
-      <tr>
-        <td>${formatDate(t.date)}</td>
-        <td><span class="badge ${t.category_type === 'Company' ? 'badge-company' : 'badge-personal'}">${t.category_name || '-'}</span></td>
-        <td>${t.description || '-'}</td>
-        <td>${t.wallet_name || '-'}</td>
-        <td class="amount">${formatCurrency(t.amount)} ₺</td>
-      </tr>
-    `
+      (t) => {
+        let badgeClass = t.category_type === 'Company' ? 'badge-company' : 'badge-personal';
+        let categoryName = t.category_name || '-';
+        let amountStyle = '';
+
+        if (t.is_income) {
+          badgeClass = 'badge-income';
+          categoryName = 'Para Girişi / Avans';
+          amountStyle = 'color: #10B981';
+        }
+
+        return `
+          <tr>
+            <td>${formatDate(t.date)}</td>
+            <td><span class="badge ${badgeClass}">${categoryName}</span></td>
+            <td>${t.description || '-'}</td>
+            <td>${t.wallet_name || '-'}</td>
+            <td class="amount" style="${amountStyle}">${t.is_income ? '+' : ''}${formatCurrency(t.amount)} ₺</td>
+          </tr>
+        `;
+      }
     )
     .join('');
 
-  const offsetRows = transactions
+  const offsetRows = filteredTransactions
     .filter((t) => t.is_offset_transaction)
     .map(
       (t) => `
       <tr class="offset-row">
         <td>${formatDate(t.date)}</td>
-        <td><span class="badge badge-offset">Mahsup</span></td>
+        <td><span class="badge badge-offset">${t.is_virtual ? 'Maaş Kesintisi' : 'Nakit Ödeme'}</span></td>
         <td>${t.description || 'Hesap Kapatma'}</td>
         <td>${t.wallet_name || '-'}</td>
-        <td class="amount offset-amount">${formatCurrency(t.amount)} ₺</td>
+        <td class="amount offset-amount">${t.is_virtual ? '-' : ''}${formatCurrency(t.amount)} ₺</td>
       </tr>
     `
     )
@@ -213,9 +242,10 @@ export const generateReportHTML = (transactions, options = {}) => {
         }
         .badge-company { background: #3B82F620; color: #3B82F6; }
         .badge-personal { background: #EC489920; color: #EC4899; }
+        .badge-income { background: #10B98120; color: #10B981; }
         .badge-offset { background: #F59E0B20; color: #F59E0B; }
         .offset-row { background: #FFFBEB !important; }
-        .offset-amount { color: #F59E0B; }
+        .offset-amount { color: #F59E0B; font-weight: bold; }
         .receipt-grid {
           display: flex;
           flex-wrap: wrap;
@@ -270,7 +300,11 @@ export const generateReportHTML = (transactions, options = {}) => {
           <div class="value">${formatCurrency(personalExpenses)} ₺</div>
         </div>
         <div class="summary-card">
-          <div class="label">Geri Ödemeler</div>
+          <div class="label">Alınan Avanslar</div>
+          <div class="value">${formatCurrency(receivedAdvances)} ₺</div>
+        </div>
+        <div class="summary-card">
+          <div class="label">Mahsuplaşmalar</div>
           <div class="value">${formatCurrency(offsetTotal)} ₺</div>
         </div>
         <div class="summary-card net">
@@ -298,7 +332,7 @@ export const generateReportHTML = (transactions, options = {}) => {
         </table>
       </div>
 
-      ${generateReceiptImages(transactions)}
+      ${generateReceiptImages(filteredTransactions)}
 
       <div class="footer">
         Harcama Takip Uygulaması — Rapor oluşturma tarihi: ${new Date().toLocaleDateString('tr-TR')}
@@ -317,15 +351,31 @@ export const generateAndSharePDF = async (transactions, options = {}) => {
       base64: false,
     });
 
+    // Move file to a permanent location
+    const reportsDir = FileSystem.documentDirectory + 'reports/';
+    const dirInfo = await FileSystem.getInfoAsync(reportsDir);
+    if (!dirInfo.exists) {
+      await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
+    }
+
+    const timestamp = new Date().getTime();
+    const fileName = `rapor_${timestamp}.pdf`;
+    const permanentUri = reportsDir + fileName;
+
+    await FileSystem.moveAsync({
+      from: uri,
+      to: permanentUri,
+    });
+
     if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(uri, {
+      await Sharing.shareAsync(permanentUri, {
         mimeType: 'application/pdf',
         dialogTitle: 'Harcama Raporu',
         UTI: 'com.adobe.pdf',
       });
     }
 
-    return uri;
+    return permanentUri;
   } catch (error) {
     console.error('Error generating PDF:', error);
     throw error;

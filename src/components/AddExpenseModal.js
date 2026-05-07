@@ -15,6 +15,7 @@ import {
 import { theme } from '../theme/colors';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import useStore from '../store/useStore';
 
 export const AddExpenseModal = ({ visible, onClose }) => {
@@ -27,6 +28,8 @@ export const AddExpenseModal = ({ visible, onClose }) => {
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [city, setCity] = useState('');
+  const [date, setDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [receiptUri, setReceiptUri] = useState(null);
 
   // Set default wallet and categories when type changes
@@ -53,6 +56,7 @@ export const AddExpenseModal = ({ visible, onClose }) => {
     setDescription('');
     setType('Personal');
     setCity('');
+    setDate(new Date());
     setReceiptUri(null);
   };
 
@@ -68,7 +72,7 @@ export const AddExpenseModal = ({ visible, onClose }) => {
 
     try {
       await addTransaction({
-        date: new Date().toISOString(),
+        date: date.toISOString(),
         amount: parseFloat(amount),
         wallet_id: selectedWalletId,
         category_id: selectedCategoryId,
@@ -99,8 +103,14 @@ export const AddExpenseModal = ({ visible, onClose }) => {
     }
   };
 
+  const onDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setDate(selectedDate);
+    }
+  };
+
   const filteredCategories = categories.filter(c => c.type === type);
-  const filteredWallets = wallets.filter(w => w.owner === type);
 
   return (
     <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
@@ -124,9 +134,32 @@ export const AddExpenseModal = ({ visible, onClose }) => {
                 keyboardType="decimal-pad"
                 value={amount}
                 onChangeText={setAmount}
-                autoFocus
               />
             </View>
+
+            {/* Date Selector */}
+            <TouchableOpacity 
+              style={styles.dateSelector} 
+              onPress={() => setShowDatePicker(true)}
+            >
+              <MaterialIcons name="event" size={20} color={theme.primary} />
+              <Text style={styles.dateText}>
+                {date.toLocaleDateString('tr-TR', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </Text>
+            </TouchableOpacity>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={date}
+                mode="date"
+                display="default"
+                onChange={onDateChange}
+              />
+            )}
 
             {/* Type Selector (Personal / Company) */}
             <Text style={styles.sectionLabel}>Harcama Türü</Text>
@@ -150,18 +183,32 @@ export const AddExpenseModal = ({ visible, onClose }) => {
 
             {/* Wallet Selector */}
             <Text style={styles.sectionLabel}>Ödeme Yapılan Cüzdan</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-              {filteredWallets.map(w => (
-                <TouchableOpacity
-                  key={w.id}
-                  style={[styles.chip, selectedWalletId === w.id && styles.activeChip]}
-                  onPress={() => setSelectedWalletId(w.id)}
-                >
-                  <MaterialIcons name={w.type === 'Cash' ? 'payments' : 'credit-card'} size={16} color={selectedWalletId === w.id ? '#FFF' : theme.textMuted} />
-                  <Text style={[styles.chipText, selectedWalletId === w.id && styles.activeChipText]}>{w.name}</Text>
-                </TouchableOpacity>
+            
+            <View style={styles.walletGroups}>
+              {['Personal', 'Company'].map(owner => (
+                <View key={owner} style={styles.walletGroup}>
+                  <Text style={styles.walletGroupLabel}>
+                    {owner === 'Personal' ? 'Kişisel Cüzdanlar' : 'Şirket Cüzdanları'}
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                    {wallets.filter(w => w.owner === owner).map(w => (
+                      <TouchableOpacity
+                        key={w.id}
+                        style={[styles.chip, selectedWalletId === w.id && styles.activeChip]}
+                        onPress={() => setSelectedWalletId(w.id)}
+                      >
+                        <MaterialIcons 
+                          name={w.type === 'Cash' ? 'payments' : 'credit-card'} 
+                          size={16} 
+                          color={selectedWalletId === w.id ? '#FFF' : theme.textMuted} 
+                        />
+                        <Text style={[styles.chipText, selectedWalletId === w.id && styles.activeChipText]}>{w.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
               ))}
-            </ScrollView>
+            </View>
 
             {/* Category Selector */}
             <Text style={styles.sectionLabel}>Kategori</Text>
@@ -205,6 +252,15 @@ export const AddExpenseModal = ({ visible, onClose }) => {
                   value={city}
                   onChangeText={setCity}
                 />
+                {city.length > 0 && cities.filter(c => c.toLowerCase().includes(city.toLowerCase()) && c !== city).length > 0 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.suggestionScroll}>
+                    {cities.filter(c => c.toLowerCase().includes(city.toLowerCase()) && c !== city).map((c, i) => (
+                      <TouchableOpacity key={i} style={styles.suggestionChip} onPress={() => setCity(c)}>
+                        <Text style={styles.suggestionText}>{c}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
               </>
             )}
 
@@ -273,6 +329,21 @@ const styles = StyleSheet.create({
   },
   currencySign: { color: theme.primary, fontSize: 32, fontWeight: 'bold', marginRight: 8 },
   amountInput: { color: theme.text, fontSize: 32, fontWeight: 'bold', minWidth: 100, textAlign: 'center' },
+  dateSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: theme.border,
+    gap: 12,
+  },
+  dateText: {
+    color: theme.text,
+    fontSize: 16,
+  },
   sectionLabel: { color: theme.textMuted, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 8, marginTop: 12 },
   typeRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
   typeButton: {
@@ -290,7 +361,13 @@ const styles = StyleSheet.create({
   activePersonal: { borderColor: theme.personal, backgroundColor: theme.personal + '10' },
   activeCompany: { borderColor: theme.business, backgroundColor: theme.business + '10' },
   typeText: { color: theme.textMuted, fontWeight: 'bold' },
-  chipScroll: { marginBottom: 8 },
+  walletGroups: { marginBottom: 12 },
+  walletGroup: { marginBottom: 8 },
+  walletGroupLabel: { color: theme.textMuted, fontSize: 10, fontWeight: '600', marginBottom: 4, marginLeft: 4 },
+  chipScroll: { marginBottom: 4 },
+  suggestionScroll: { marginTop: -8, marginBottom: 12 },
+  suggestionChip: { backgroundColor: theme.surfaceLight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginRight: 8, borderWidth: 1, borderColor: theme.border },
+  suggestionText: { color: theme.text, fontSize: 12 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',

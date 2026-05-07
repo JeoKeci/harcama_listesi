@@ -63,7 +63,7 @@ export default function DashboardScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={theme.background} />
 
       {/* Header */}
@@ -148,7 +148,7 @@ export default function DashboardScreen() {
         visible={offsetModalVisible}
         onClose={() => setOffsetModalVisible(false)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

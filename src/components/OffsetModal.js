@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { theme } from '../theme/colors';
 import { MaterialIcons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import useStore from '../store/useStore';
 
 export const OffsetModal = ({ visible, onClose }) => {
@@ -22,6 +23,8 @@ export const OffsetModal = ({ visible, onClose }) => {
   const [description, setDescription] = useState('');
   const [method, setMethod] = useState('physical'); // 'physical' | 'virtual'
   const [selectedWalletId, setSelectedWalletId] = useState(null);
+  const [date, setDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const personalWallets = wallets.filter(w => w.owner === 'Personal');
 
@@ -37,16 +40,24 @@ export const OffsetModal = ({ visible, onClose }) => {
           Alert.alert('Hata', 'Lütfen ödemenin alınacağı cüzdanı seçiniz.');
           return;
         }
-        await addOffsetPhysical(parseFloat(amount), selectedWalletId, description);
+        await addOffsetPhysical(parseFloat(amount), selectedWalletId, description, date.toISOString());
       } else {
-        await addOffsetVirtual(parseFloat(amount), description);
+        await addOffsetVirtual(parseFloat(amount), description, date.toISOString());
       }
 
       setAmount('');
       setDescription('');
+      setDate(new Date());
       onClose();
     } catch (error) {
       Alert.alert('Hata', 'İşlem kaydedilirken bir sorun oluştu.');
+    }
+  };
+
+  const onDateChange = (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setDate(selectedDate);
     }
   };
 
@@ -83,6 +94,30 @@ export const OffsetModal = ({ visible, onClose }) => {
                 onChangeText={setAmount}
               />
             </View>
+
+            <Text style={styles.sectionLabel}>Tarih</Text>
+            <TouchableOpacity 
+              style={styles.dateSelector} 
+              onPress={() => setShowDatePicker(true)}
+            >
+              <MaterialIcons name="event" size={20} color={theme.primary} />
+              <Text style={styles.dateText}>
+                {date.toLocaleDateString('tr-TR', {
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </Text>
+            </TouchableOpacity>
+
+            {showDatePicker && (
+              <DateTimePicker
+                value={date}
+                mode="date"
+                display="default"
+                onChange={onDateChange}
+              />
+            )}
 
             <Text style={styles.sectionLabel}>İşlem Yöntemi</Text>
             <View style={styles.methodRow}>
@@ -150,6 +185,21 @@ const styles = StyleSheet.create({
   infoBox: { backgroundColor: theme.surface, borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 20 },
   infoLabel: { color: theme.textMuted, fontSize: 12, textTransform: 'uppercase', marginBottom: 4 },
   infoValue: { fontSize: 24, fontWeight: 'bold' },
+  dateSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.surface,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
+    gap: 12,
+  },
+  dateText: {
+    color: theme.text,
+    fontSize: 16,
+  },
   sectionLabel: { color: theme.textMuted, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 8, marginTop: 12 },
   amountSection: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.surface, borderRadius: 12, padding: 12 },
   currencySign: { color: theme.primary, fontSize: 24, fontWeight: 'bold', marginRight: 8 },

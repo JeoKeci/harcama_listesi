@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { Alert } from 'react-native';
 import {
   initDatabase,
   getActiveWallets,
@@ -11,12 +12,15 @@ import {
   deleteTransaction as dbDeleteTransaction,
   updateWalletBalance,
   insertWallet as dbInsertWallet,
+  updateWallet as dbUpdateWallet,
   deactivateWallet as dbDeactivateWallet,
   insertProject as dbInsertProject,
+  updateProject as dbUpdateProject,
   deactivateProject as dbDeactivateProject,
   getDistinctCities,
   exportAllData,
   getTransactionsByDateRange,
+  resetDatabase,
 } from '../database/database';
 
 const useStore = create((set, get) => ({
@@ -41,6 +45,21 @@ const useStore = create((set, get) => ({
       await get().loadAllData();
     } catch (error) {
       console.error('Error initializing app:', error);
+      Alert.alert('DB Başlatma Hatası', error.message);
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  resetApp: async () => {
+    try {
+      set({ isLoading: true });
+      await resetDatabase();
+      await get().loadAllData();
+      Alert.alert('Başarılı', 'Uygulama başarıyla sıfırlandı.');
+    } catch (error) {
+      console.error('Error resetting app:', error);
+      throw error;
     } finally {
       set({ isLoading: false });
     }
@@ -48,15 +67,16 @@ const useStore = create((set, get) => ({
 
   loadAllData: async () => {
     try {
-      const [wallets, projects, categories, transactions, cities] = await Promise.all([
+      const [wallets, projects, categories, transactions, allTransactions, cities] = await Promise.all([
         getActiveWallets(),
         getActiveProjects(),
         getCategories(),
         getTransactions(get().activeFilter),
+        getTransactions('all', 10000), // High limit for balance calculation
         getDistinctCities(),
       ]);
 
-      const netBalance = get().calculateNetBalance(transactions);
+      const netBalance = get().calculateNetBalance(allTransactions, wallets);
 
       set({
         wallets,
@@ -68,38 +88,57 @@ const useStore = create((set, get) => ({
       });
     } catch (error) {
       console.error('Error loading data:', error);
+      Alert.alert('Veri Yükleme Hatası', error.message);
     }
   },
 
   // ==================== RECONCILIATION ENGINE ====================
 
-  calculateNetBalance: (transactions) => {
+  calculateNetBalance: (transactions, wallets) => {
     let balance = 0;
 
+    // 1. Transaction based balance
     for (const t of transactions) {
-      if (t.is_offset_transaction) {
-        // Offset transactions: reduce the balance
-        // positive amount = company paid owner (reduces company debt)
-        // In offset: if wallet is Personal -> company paid into personal -> reduce net
-        if (t.wallet_owner === 'Personal') {
-          balance -= t.amount; // Company paid owner, so company debt decreases
-        } else {
-          balance += t.amount; // Owner paid company, so company debt increases (or owner debt decreases)
-        }
-      } else {
-        const walletOwner = t.wallet_owner;
-        const categoryType = t.category_type;
+      const walletOwner = t.wallet_owner;
+      const categoryType = t.category_type;
 
-        if (walletOwner === 'Personal' && categoryType === 'Company') {
-          // Personal wallet used for company expense -> Company owes Owner
+      if (t.is_offset_transaction) {
+        if (t.is_virtual) {
+          // Virtual Offset (Salary Cut / Maaş Kesintisi)
+          // Rule: Debt decreases (Balance moves towards 0 from negative)
           balance += t.amount;
-        } else if (walletOwner === 'Company' && categoryType === 'Personal') {
-          // Company wallet used for personal expense -> Owner owes Company
+        } else {
+          // Physical Offset (Company pays User / Nakit Ödeme)
+          // Rule: Credit decreases (Balance moves towards 0 from positive)
           balance -= t.amount;
         }
-        // Same owner-type transactions are neutral
+      } else if (t.is_income) {
+        // Income (Para Girişi)
+        if (walletOwner === 'Personal') {
+          // Rule: Advance taken into personal pocket (Debt increases)
+          balance -= t.amount;
+        }
+        // Company wallet income doesn't affect net balance directly
+      } else {
+        // Expense (Harcama)
+        if (walletOwner === 'Personal' && categoryType === 'Company') {
+          // Rule: Owner paid for company expense (Credit increases)
+          balance += t.amount;
+        } else if (walletOwner === 'Company' && categoryType === 'Personal') {
+          // Rule: Company paid for owner expense (Debt increases)
+          balance -= t.amount;
+        }
       }
     }
+
+    // 2. Negative Company Wallet Balances
+    // Rule: "şirket NAKİT kasasında ki bakiyeden daha fazla harcama yapıldıysa oluşan fark şirketi bana borçlandırır"
+    // Bu kural sadece NAKİT (Cash) cüzdanlar için geçerlidir, Kredi Kartı için geçerli değildir.
+    wallets.forEach(w => {
+      if (w.owner === 'Company' && w.type === 'Cash' && w.balance < 0) {
+        balance += Math.abs(w.balance);
+      }
+    });
 
     return balance;
   },
@@ -109,8 +148,8 @@ const useStore = create((set, get) => ({
   setActiveFilter: async (filter) => {
     set({ activeFilter: filter });
     const transactions = await getTransactions(filter);
-    const allTransactions = await getTransactions('all');
-    const netBalance = get().calculateNetBalance(allTransactions);
+    const allTransactions = await getTransactions('all', 10000);
+    const netBalance = get().calculateNetBalance(allTransactions, get().wallets);
     set({ transactions, netBalance });
   },
 
@@ -118,23 +157,29 @@ const useStore = create((set, get) => ({
 
   addTransaction: async (data) => {
     try {
-      // Insert transaction into DB
       await insertTransaction(data);
-
-      // Update wallet balance (decrease for expenses, increase for income offset)
       if (!data.is_offset_transaction) {
         await updateWalletBalance(data.wallet_id, -data.amount);
       } else {
-        // For physical offset payments, increase the receiving wallet
         if (data.wallet_id) {
           await updateWalletBalance(data.wallet_id, data.amount);
         }
       }
-
-      // Reload all data
       await get().loadAllData();
     } catch (error) {
       console.error('Error adding transaction:', error);
+      throw error;
+    }
+  },
+
+  addIncomeTransaction: async (data) => {
+    try {
+      // For income, amount is positive
+      await insertTransaction(data);
+      await updateWalletBalance(data.wallet_id, data.amount);
+      await get().loadAllData();
+    } catch (error) {
+      console.error('Error adding income:', error);
       throw error;
     }
   },
@@ -177,6 +222,7 @@ const useStore = create((set, get) => ({
       description: description || 'Hesap Kapatma - Fiziksel Ödeme',
       receipt_uri: null,
       is_offset_transaction: true,
+      is_virtual: false,
     };
 
     // We need a special category for offsets - use category_id = null approach
@@ -225,6 +271,7 @@ const useStore = create((set, get) => ({
         description: description || 'Hesap Kapatma - Maaş Kesintisi',
         receipt_uri: null,
         is_offset_transaction: true,
+        is_virtual: true,
       };
 
       await insertTransaction(data);
@@ -241,10 +288,19 @@ const useStore = create((set, get) => ({
   addWallet: async (name, type, owner) => {
     try {
       await dbInsertWallet(name, type, owner);
-      const wallets = await getActiveWallets();
-      set({ wallets });
+      await get().loadAllData();
     } catch (error) {
       console.error('Error adding wallet:', error);
+      throw error;
+    }
+  },
+
+  editWallet: async (id, name, type, owner) => {
+    try {
+      await dbUpdateWallet(id, name, type, owner);
+      await get().loadAllData();
+    } catch (error) {
+      console.error('Error updating wallet:', error);
       throw error;
     }
   },
@@ -265,10 +321,19 @@ const useStore = create((set, get) => ({
   addProject: async (name) => {
     try {
       await dbInsertProject(name);
-      const projects = await getActiveProjects();
-      set({ projects });
+      await get().loadAllData();
     } catch (error) {
       console.error('Error adding project:', error);
+      throw error;
+    }
+  },
+
+  editProject: async (id, name) => {
+    try {
+      await dbUpdateProject(id, name);
+      await get().loadAllData();
+    } catch (error) {
+      console.error('Error updating project:', error);
       throw error;
     }
   },
